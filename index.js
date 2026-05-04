@@ -16,6 +16,63 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false } // required for Render
 });
 
+// ─────────────────────────────────────────────────────────
+// DATABASE INITIALIZATION — Auto-create tables on startup
+// ─────────────────────────────────────────────────────────
+const initDb = async () => {
+  const query = `
+    CREATE TABLE IF NOT EXISTS users (
+      id SERIAL PRIMARY KEY, 
+      email VARCHAR UNIQUE NOT NULL, 
+      name VARCHAR, 
+      google_id VARCHAR, 
+      created_at TIMESTAMP DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS leads (
+      id SERIAL PRIMARY KEY, 
+      first_name VARCHAR, 
+      last_name VARCHAR, 
+      email VARCHAR UNIQUE, 
+      company_website VARCHAR, 
+      company_name VARCHAR, 
+      headline VARCHAR, 
+      city VARCHAR, 
+      state VARCHAR, 
+      phone VARCHAR, 
+      status VARCHAR DEFAULT 'pending', 
+      created_at TIMESTAMP DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS campaigns (
+      id SERIAL PRIMARY KEY, 
+      user_id INTEGER REFERENCES users(id), 
+      status VARCHAR DEFAULT 'running', 
+      leads_processed INTEGER DEFAULT 0, 
+      drafts_created INTEGER DEFAULT 0, 
+      created_at TIMESTAMP DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS email_drafts (
+      id SERIAL PRIMARY KEY, 
+      campaign_id INTEGER REFERENCES campaigns(id), 
+      lead_id INTEGER REFERENCES leads(id), 
+      recipient_name VARCHAR, 
+      recipient_email VARCHAR, 
+      subject TEXT, 
+      body TEXT, 
+      status VARCHAR DEFAULT 'pending', 
+      created_at TIMESTAMP DEFAULT NOW()
+    );
+  `;
+  try {
+    await pool.query(query);
+    console.log("✅ NexaMail Database Tables Ready!");
+  } catch (err) {
+    console.error("❌ Error initializing database:", err.message);
+  }
+};
+
+// Run DB Init
+initDb();
+
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 // ─────────────────────────────────────────────────────────
@@ -157,7 +214,6 @@ app.post('/api/campaigns/run', auth, async (req, res) => {
     const campaign = rows[0];
 
     // 2. Trigger your n8n webhook — fire and forget
-    // n8n will call /api/campaigns/:id/complete when done
     axios.post(process.env.N8N_WEBHOOK_URL, {
       campaign_id: campaign.id,
       callback_url: `${process.env.BACKEND_URL}/api/campaigns/${campaign.id}/complete`
@@ -214,7 +270,7 @@ app.post('/api/campaigns/:id/complete', async (req, res) => {
     if (drafts && Array.isArray(drafts)) {
       for (const d of drafts) {
         await pool.query(
-          `INSERT INTO email_drafts
+          `INSERT INTO email_draft_drafts
             (campaign_id, lead_id, recipient_name, recipient_email, subject, body, status)
            VALUES($1,$2,$3,$4,$5,$6,'pending')`,
           [campaignId, d.lead_id || null,
