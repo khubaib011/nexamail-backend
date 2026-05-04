@@ -371,7 +371,23 @@ app.get('/api/stats', auth, async (req, res) => {
 // ─────────────────────────────────────────────────────────
 // START SERVER
 // ─────────────────────────────────────────────────────────
+// 1. Pehle ye setup wala route add karen
+app.get('/setup-db', async (req, res) => {
+  const query = `
+    CREATE TABLE IF NOT EXISTS users (id SERIAL PRIMARY KEY, email VARCHAR UNIQUE NOT NULL, name VARCHAR, google_id VARCHAR, created_at TIMESTAMP DEFAULT NOW());
+    CREATE TABLE IF NOT EXISTS leads (id SERIAL PRIMARY KEY, first_name VARCHAR, last_name VARCHAR, email VARCHAR UNIQUE, company_name VARCHAR, status VARCHAR DEFAULT 'pending', created_at TIMESTAMP DEFAULT NOW());
+    CREATE TABLE IF NOT EXISTS campaigns (id SERIAL PRIMARY KEY, user_id INTEGER REFERENCES users(id), status VARCHAR DEFAULT 'running', created_at TIMESTAMP DEFAULT NOW());
+    CREATE TABLE IF NOT EXISTS email_drafts (id SERIAL PRIMARY KEY, campaign_id INTEGER REFERENCES campaigns(id), lead_id INTEGER REFERENCES leads(id), subject TEXT, body TEXT, status VARCHAR DEFAULT 'pending', created_at TIMESTAMP DEFAULT NOW());
+  `;
+  try {
+    await pool.query(query);
+    res.send("<h1>✅ NexaMail Database Setup Complete!</h1>");
+  } catch (err) {
+    res.status(500).send("Error: " + err.message);
+  }
+});
 
+// 2. Phir ye aapka purana port wala code niche rahega
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`NexaMail backend running on port ${PORT}`);
