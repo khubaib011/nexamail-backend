@@ -91,7 +91,7 @@ app.post('/api/auth/google', async (req, res) => {
   }
 });
 
-// AUTH MIDDLEWARE (Baqi code same hai)
+// AUTH MIDDLEWARE
 function auth(req, res, next) {
   const token = req.headers.authorization?.split(' ')[1];
   if (!token) return res.status(401).json({ error: 'Unauthorized' });
@@ -103,7 +103,72 @@ function auth(req, res, next) {
   }
 }
 
-// ... (Baqi routes leads/stats ke same rahenge)
+// ─────────────────────────────────────────────────────────
+// 🔥 NEW LEADS INTEGRATION ROUTES (n8n & Flutter App)
+// ─────────────────────────────────────────────────────────
+
+// 1. POST Endpoint: n8n se ek ek lead accept karke database mein save karne ke liye
+app.post('/api/leads/import', async (req, res) => {
+  try {
+    const { first_name, last_name, email, company_website, company_name } = req.body;
+
+    // Validation: Agar n8n se email na aye toh error return karein
+    if (!email) {
+      return res.status(400).json({ error: 'Email field is required to import a lead.' });
+    }
+
+    // Database Queries - Agar email pehle se hai toh details update ho jayengi (Upsert)
+    const query = `
+      INSERT INTO leads (first_name, last_name, email, company_website, company_name, status)
+      VALUES ($1, $2, $3, $4, $5, 'pending')
+      ON CONFLICT (email) DO UPDATE SET 
+        first_name = EXCLUDED.first_name,
+        last_name = EXCLUDED.last_name,
+        company_website = EXCLUDED.company_website,
+        company_name = EXCLUDED.company_name
+      RETURNING *;
+    `;
+
+    const values = [first_name, last_name, email, company_website, company_name];
+    const { rows } = await pool.query(query, values);
+
+    console.log(`📥 Lead Successfully Synced from n8n: ${email}`);
+    res.status(201).json({ message: 'Lead processed and saved', lead: rows[0] });
+
+  } catch (err) {
+    console.error("❌ Error running /api/leads/import:", err.message);
+    res.status(500).json({ error: 'Internal Server Error', details: err.message });
+  }
+});
+
+// 2. GET Endpoint: Flutter frontend mein leads list render karne ke liye
+app.get('/api/leads', async (req, res) => {
+  try {
+    // Latets leads pehle show honi chahiye, isiliye DESC order use kiya hai
+    const { rows } = await pool.query('SELECT * FROM leads ORDER BY id DESC');
+    res.json(rows);
+  } catch (err) {
+    console.error("❌ Error fetching leads:", err.message);
+    res.status(500).json({ error: 'Internal Server Error', details: err.message });
+  }
+});
+
+// 3. DELETE Endpoint: Flutter App se lead delete karne ke liye
+app.delete('/api/leads/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await pool.query('DELETE FROM leads WHERE id = $1', [id]);
+    console.log(`🗑️ Lead with ID ${id} deleted.`);
+    res.json({ message: 'Lead deleted successfully' });
+  } catch (err) {
+    console.error("❌ Error deleting lead:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────
+// SERVER INITIALIZATION
+// ─────────────────────────────────────────────────────────
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
